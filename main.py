@@ -36,7 +36,7 @@ if __name__ == "__main__":
             font = QFont("Segoe UI")
         app.setFont(font)
 
-    setTheme(Theme.DARK)
+    setTheme(Theme.AUTO)
 
     window = MainWindow()
     window.show()

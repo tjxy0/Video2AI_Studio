@@ -22,7 +22,7 @@ class SettingInterface(ScrollArea):
         self.expandLayout.addWidget(self.xformersCard)
 
         self.lowVramCard = SimpleSwitchSettingCard(
-            self.config.low_vram, FIF.ZZZ, "低显存模式 (Low VRAM)",
+            self.config.low_vram, FIF.TILES, "低显存模式 (Low VRAM)",
             "自动卸载模型至 CPU。适合 4GB-6GB 显卡。", self.scrollWidget
         )
         self.lowVramCard.checkedChanged.connect(lambda v: setattr(self.config, 'low_vram', v))

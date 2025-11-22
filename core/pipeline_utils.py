@@ -1,12 +1,3 @@
-import torch
-from diffusers import (
-    StableDiffusionControlNetPipeline,
-    StableDiffusionImg2ImgPipeline,
-    ControlNetModel,
-    UniPCMultistepScheduler
-)
-
-
 class PipelineLoader:
     """
     根据配置动态加载 ControlNet 管线或 Img2Img 管线
@@ -14,6 +5,15 @@ class PipelineLoader:
 
     @staticmethod
     def load_pipeline(config):
+        # 延迟导入 AI 库，防止启动时的 DLL 错误
+        import torch
+        from diffusers import (
+            StableDiffusionControlNetPipeline,
+            StableDiffusionImg2ImgPipeline,
+            ControlNetModel,
+            UniPCMultistepScheduler
+        )
+
         # === 分支 A: 启用骨骼 (OpenPose + ControlNet) ===
         if config.enable_pose:
             print("正在加载 ControlNet OpenPose 管道...")

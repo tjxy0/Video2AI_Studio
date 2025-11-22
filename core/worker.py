@@ -1,11 +1,10 @@
 import os
 import subprocess
-import torch
-from PIL import Image
 from PyQt6.QtCore import QThread, pyqtSignal
-from controlnet_aux import OpenposeDetector
-from core.pipeline_utils import PipelineLoader
 
+
+# 注意：移除了顶部的 torch, PIL, controlnet_aux 导入
+# 改为在 run() 方法中延迟导入，确保 GUI 启动时不崩溃
 
 class AIWorker(QThread):
     progress_signal = pyqtSignal(int, str)
@@ -19,6 +18,13 @@ class AIWorker(QThread):
 
     def run(self):
         try:
+            # === 延迟导入区 ===
+            import torch
+            from PIL import Image
+            from controlnet_aux import OpenposeDetector
+            from core.pipeline_utils import PipelineLoader
+            # =================
+
             if not self.config.input_video_path or not os.path.exists(self.config.input_video_path):
                 raise ValueError("无效的视频输入路径")
 

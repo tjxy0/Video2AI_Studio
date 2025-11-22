@@ -6,11 +6,16 @@ from qfluentwidgets import (
     SubtitleLabel, PrimaryPushButton, ProgressBar,
     InfoBar, InfoBarPosition, CardWidget, IconWidget,
     BodyLabel, FluentIcon as FIF, ScrollArea,
-    PushSettingCard, LineEdit, TextEdit, CaptionLabel
+    PushSettingCard, TextEdit, CaptionLabel
 )
 
 from core.worker import AIWorker
-from gui.custom_components import SimpleRangeSettingCard, SimpleSwitchSettingCard
+from gui.custom_components import (
+    SimpleSpinBoxSettingCard,
+    SimpleDoubleSpinBoxSettingCard,
+    SimpleSwitchSettingCard,
+    SimpleLineEditSettingCard
+)
 
 
 class HomeInterface(ScrollArea):
@@ -25,13 +30,17 @@ class HomeInterface(ScrollArea):
         self.setWidgetResizable(True)
 
     def _init_ui(self):
-        self.vBoxLayout.addWidget(SubtitleLabel("工作台", self.scrollWidget))
-        self.vBoxLayout.addSpacing(10)
+        self.vBoxLayout.setSpacing(15)  # 设置全局垂直间距
+        self.vBoxLayout.setContentsMargins(30, 20, 30, 30)  # 设置页边距
 
-        # 1. 视频选择
+        self.vBoxLayout.addWidget(SubtitleLabel("工作台", self.scrollWidget))
+
+        # ==================================================
+        # 1. 视频选择区域
+        # ==================================================
         self.dropArea = CardWidget(self.scrollWidget)
         self.dropArea.setAcceptDrops(True)
-        self.dropArea.setFixedHeight(120)
+        self.dropArea.setFixedHeight(100)  # 稍微调低高度，更紧凑
         layout = QVBoxLayout(self.dropArea)
         self.iconWidget = IconWidget(FIF.VIDEO, self.dropArea)
         self.iconWidget.setFixedSize(32, 32)
@@ -43,94 +52,120 @@ class HomeInterface(ScrollArea):
         self.dropArea.dropEvent = self.dropEvent
         self.vBoxLayout.addWidget(self.dropArea)
 
-        # 视频信息卡片
+        # 视频信息卡片 (默认隐藏)
         self.infoCard = CardWidget(self.scrollWidget)
+        self.infoCard.setFixedHeight(50)  # 紧凑高度
         self.infoLayout = QHBoxLayout(self.infoCard)
+        self.infoLayout.setContentsMargins(10, 0, 10, 0)
         self.infoLabel = BodyLabel("等待加载视频...", self.infoCard)
         self.infoLayout.addWidget(self.infoLabel, 0, Qt.AlignmentFlag.AlignCenter)
         self.infoCard.setVisible(False)
         self.vBoxLayout.addWidget(self.infoCard)
-        self.vBoxLayout.addSpacing(20)
 
-        # 2. 预处理设置
+        self.vBoxLayout.addSpacing(10)
+
+        # ==================================================
+        # 2. 预处理设置 (分组布局)
+        # ==================================================
         self.vBoxLayout.addWidget(CaptionLabel("1. 预处理设置", self.scrollWidget))
 
-        # 骨骼开关
+        # 骨骼开关 (独占一行)
         self.poseSwitch = SimpleSwitchSettingCard(
             self.config.enable_pose, FIF.PEOPLE,
-            "启用骨骼提取 (OpenPose)",
-            "开启：完全基于骨骼重绘 (适合转动漫)。关闭：图生图模式 (保留原画面细节)。",
+            "启用骨骼提取",
+            "开启：基于骨骼重绘(动漫化) | 关闭：图生图(风格迁移)",
             self.scrollWidget
         )
         self.poseSwitch.checkedChanged.connect(self._on_pose_switch_changed)
         self.vBoxLayout.addWidget(self.poseSwitch)
 
-        self.fpsCard = SimpleRangeSettingCard(
-            self.config.target_fps, 60, FIF.SPEED_HIGH,
+        # [布局优化] 目标帧率 和 目标宽度 并排显示
+        prepLayout = QHBoxLayout()
+        prepLayout.setSpacing(15)
+
+        self.fpsCard = SimpleSpinBoxSettingCard(
+            self.config.target_fps, 1, 60, FIF.SPEED_HIGH,
             "目标帧率 (FPS)", "建议 12/15/24", self.scrollWidget
         )
         self.fpsCard.valueChanged.connect(lambda v: setattr(self.config, 'target_fps', v))
-        self.vBoxLayout.addWidget(self.fpsCard)
 
-        self.widthCard = SimpleRangeSettingCard(
-            self.config.target_width, 1024, FIF.ZOOM_IN,
-            "目标宽度 (像素)", "默认 512", self.scrollWidget
+        self.widthCard = SimpleSpinBoxSettingCard(
+            self.config.target_width, 256, 2048, FIF.ZOOM_IN,
+            "目标宽度 (PX)", "默认 512", self.scrollWidget
         )
         self.widthCard.valueChanged.connect(lambda v: setattr(self.config, 'target_width', v))
-        self.vBoxLayout.addWidget(self.widthCard)
-        self.vBoxLayout.addSpacing(20)
 
-        # 3. 生成参数
+        prepLayout.addWidget(self.fpsCard)
+        prepLayout.addWidget(self.widthCard)
+        self.vBoxLayout.addLayout(prepLayout)
+
+        self.vBoxLayout.addSpacing(10)
+
+        # ==================================================
+        # 3. 生成参数设置 (分组布局)
+        # ==================================================
         self.vBoxLayout.addWidget(CaptionLabel("2. 生成参数设置", self.scrollWidget))
 
+        # 模型选择
         self.modelCard = PushSettingCard(
-            "选择模型", FIF.FOLDER,
-            "Stable Diffusion 模型 (.safetensors)",
+            "选择文件", FIF.FOLDER,
+            "基础模型 (Checkpoint)",
             self.config.model_path if self.config.model_path else "默认: 在线下载 runwayml/stable-diffusion-v1-5",
             self.scrollWidget
         )
         self.modelCard.clicked.connect(self.select_model)
         self.vBoxLayout.addWidget(self.modelCard)
 
+        # 提示词
         self.promptEdit = TextEdit(self.scrollWidget)
-        self.promptEdit.setPlaceholderText("提示词 (Prompt)")
+        self.promptEdit.setPlaceholderText("提示词 (Prompt) - 例如: anime style, masterpiece, best quality")
         self.promptEdit.setText(self.config.prompt)
-        self.promptEdit.setFixedHeight(80)
+        self.promptEdit.setFixedHeight(70)  # 稍微减小高度
         self.promptEdit.textChanged.connect(lambda: setattr(self.config, 'prompt', self.promptEdit.toPlainText()))
         self.vBoxLayout.addWidget(self.promptEdit)
 
-        # 重绘幅度 (仅 Img2Img 模式显示)
-        self.strengthCard = SimpleRangeSettingCard(
-            int(self.config.denoising_strength * 100), 100, FIF.BRUSH,
-            "重绘幅度 (Denoising Strength)", "仅在关闭骨骼时生效。数值越大变化越大 (显示值/100)。", self.scrollWidget
+        # 重绘幅度 (条件显示)
+        self.strengthCard = SimpleDoubleSpinBoxSettingCard(
+            self.config.denoising_strength, 0.0, 1.0, 0.05, FIF.BRUSH,
+            "重绘幅度", "关闭骨骼时生效，数值越大变化越大", self.scrollWidget
         )
         self.strengthCard.setVisible(False)
-        self.strengthCard.valueChanged.connect(self._update_strength)
+        self.strengthCard.valueChanged.connect(lambda v: setattr(self.config, 'denoising_strength', v))
         self.vBoxLayout.addWidget(self.strengthCard)
 
-        self.stepsCard = SimpleRangeSettingCard(
-            self.config.steps, 60, FIF.SYNC,
-            "迭代步数 (Steps)", "建议 20-30", self.scrollWidget
+        # [布局优化] 步数 和 CFG Scale 并排显示
+        genLayout = QHBoxLayout()
+        genLayout.setSpacing(15)
+
+        self.stepsCard = SimpleSpinBoxSettingCard(
+            self.config.steps, 1, 100, FIF.SYNC,
+            "迭代步数", "建议 20-30", self.scrollWidget
         )
         self.stepsCard.valueChanged.connect(lambda v: setattr(self.config, 'steps', v))
-        self.vBoxLayout.addWidget(self.stepsCard)
 
-        self.cfgCard = SimpleRangeSettingCard(
-            int(self.config.cfg_scale * 10), 200, FIF.PALETTE,
-            "提示词相关性 (CFG Scale)", "建议 7.0-9.0 (显示值/10)", self.scrollWidget
+        self.cfgCard = SimpleDoubleSpinBoxSettingCard(
+            self.config.cfg_scale, 1.0, 30.0, 0.5, FIF.PALETTE,
+            "CFG Scale", "建议 7.0-9.0", self.scrollWidget
         )
-        self.cfgCard.valueChanged.connect(
-            lambda v: (setattr(self.config, 'cfg_scale', v / 10.0), self.cfgCard.valueLabel.setText(f"{v / 10.0:.1f}")))
-        self.vBoxLayout.addWidget(self.cfgCard)
+        self.cfgCard.valueChanged.connect(lambda v: setattr(self.config, 'cfg_scale', v))
 
-        self.seedInput = LineEdit(self.scrollWidget)
-        self.seedInput.setPlaceholderText("随机种子 (Seed)")
-        self.seedInput.setText(str(self.config.seed))
-        self.seedInput.textChanged.connect(lambda t: setattr(self.config, 'seed', int(t)) if t.isdigit() else None)
-        self.vBoxLayout.addWidget(self.seedInput)
-        self.vBoxLayout.addSpacing(30)
+        genLayout.addWidget(self.stepsCard)
+        genLayout.addWidget(self.cfgCard)
+        self.vBoxLayout.addLayout(genLayout)
 
+        # 种子 (独占一行)
+        self.seedCard = SimpleLineEditSettingCard(
+            str(self.config.seed), "随机种子", FIF.EDIT,
+            "随机种子 (Seed)", "固定种子以减少画面闪烁", self.scrollWidget
+        )
+        self.seedCard.textChanged.connect(lambda t: setattr(self.config, 'seed', int(t)) if t.isdigit() else None)
+        self.vBoxLayout.addWidget(self.seedCard)
+
+        self.vBoxLayout.addSpacing(20)
+
+        # ==================================================
         # 4. 控制区
+        # ==================================================
         self.progressBar = ProgressBar(self.scrollWidget)
         self.statusLabel = BodyLabel("准备就绪", self.scrollWidget)
         self.statusLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -145,10 +180,6 @@ class HomeInterface(ScrollArea):
     def _on_pose_switch_changed(self, is_checked):
         self.config.enable_pose = is_checked
         self.strengthCard.setVisible(not is_checked)
-
-    def _update_strength(self, value):
-        self.config.denoising_strength = value / 100.0
-        self.strengthCard.valueLabel.setText(f"{self.config.denoising_strength:.2f}")
 
     def dropEvent(self, e):
         files = [u.toLocalFile() for u in e.mimeData().urls()]
@@ -172,7 +203,7 @@ class HomeInterface(ScrollArea):
                 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 fps = cap.get(cv2.CAP_PROP_FPS)
-                self.infoLabel.setText(f"源: {w}x{h} | FPS: {fps:.2f}")
+                self.infoLabel.setText(f"源信息: {w}x{h} | FPS: {fps:.2f}")
                 self.infoCard.setVisible(True)
                 self.config.target_width = w if w < 512 else 512
                 self.widthCard.setValue(self.config.target_width)
