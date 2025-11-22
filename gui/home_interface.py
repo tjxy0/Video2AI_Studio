@@ -110,7 +110,7 @@ class HomeInterface(ScrollArea):
         self.modelCard = PushSettingCard(
             "选择文件", FIF.FOLDER,
             "基础模型 (Checkpoint)",
-            self.config.model_path if self.config.model_path else "默认: 在线下载 runwayml/stable-diffusion-v1-5",
+            self.config.model_path if self.config.model_path else "仅支持safetensor类型",
             self.scrollWidget
         )
         self.modelCard.clicked.connect(self.select_model)

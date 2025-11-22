@@ -1,7 +1,6 @@
 import subprocess
 import webbrowser
 
-
 class EnvironmentChecker:
     """
     负责检测 CUDA 和 FFmpeg 状态，并提供修复引导
