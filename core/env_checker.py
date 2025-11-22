@@ -45,6 +45,7 @@ class EnvironmentChecker:
         """交互式修复指引"""
         urls = {
             "ffmpeg": "https://ffmpeg.org/download.html",
-            "pytorch": "https://pytorch.org/get-started/locally/"
+            "pytorch": "https://pytorch.org/get-started/locally/",
+            "CUDA": "https://developer.nvidia.com/cuda-downloads"
         }
         webbrowser.open(urls.get(tool_name, "https://www.google.com"))
