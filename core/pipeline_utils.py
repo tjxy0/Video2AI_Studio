@@ -13,6 +13,7 @@ class PipelineLoader:
             ControlNetModel,
             UniPCMultistepScheduler
         )
+        from diffusers.utils import is_xformers_available
 
         # === 分支 A: 启用骨骼 (OpenPose + ControlNet) ===
         if config.enable_pose:
@@ -58,14 +59,20 @@ class PipelineLoader:
         # 通用配置
         pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
 
+        # === 优化 xFormers 加载逻辑 ===
         if config.use_xformers:
-            try:
-                pipe.enable_xformers_memory_efficient_attention()
-            except Exception:
-                pass
+            if is_xformers_available():
+                try:
+                    pipe.enable_xformers_memory_efficient_attention()
+                    print(">> xFormers 优化已启用")
+                except Exception as e:
+                    print(f">> xFormers 启用失败: {e}")
+            else:
+                print(">> 警告: 配置启用了 xFormers，但未检测到该库。已自动回退到标准模式。")
 
         if config.low_vram:
             pipe.enable_model_cpu_offload()
+            print(">> Low VRAM 模式已启用 (CPU Offload)")
         else:
             pipe.to("cuda")
 
