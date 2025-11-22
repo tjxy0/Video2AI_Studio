@@ -1,56 +1,70 @@
 import torch
-from diffusers import StableDiffusionControlNetPipeline, ControlNetModel, UniPCMultistepScheduler
+from diffusers import (
+    StableDiffusionControlNetPipeline,
+    StableDiffusionImg2ImgPipeline,
+    ControlNetModel,
+    UniPCMultistepScheduler
+)
 
 
 class PipelineLoader:
     """
-    封装复杂的模型加载逻辑 (报告 6.1)
-    处理 .safetensors 单文件加载与 ControlNet 注入
+    根据配置动态加载 ControlNet 管线或 Img2Img 管线
     """
 
     @staticmethod
     def load_pipeline(config):
-        # 1. 加载 ControlNet (OpenPose)
-        # 使用 fp16 精度以节省显存 (报告 6.3)
-        controlnet = ControlNetModel.from_pretrained(
-            "lllyasviel/sd-controlnet-openpose",
-            torch_dtype=torch.float16
-        )
-
-        # 2. 加载 Stable Diffusion
-        # 区分单文件加载 (.safetensors) 和文件夹加载
-        if config.model_path and config.model_path.endswith(".safetensors"):
-            # 必须指定 original_config_file 才能离线加载单文件 (报告 6.1)
-            pipe = StableDiffusionControlNetPipeline.from_single_file(
-                config.model_path,
-                controlnet=controlnet,
-                original_config_file=config.yaml_path,
-                torch_dtype=torch.float16,
-                use_safetensors=True,
-                load_safety_checker=False
-            )
-        else:
-            # 默认回退到在线模型 (如果用户未选择)
-            print("未指定本地模型，使用 HuggingFace 在线模型...")
-            pipe = StableDiffusionControlNetPipeline.from_pretrained(
-                "runwayml/stable-diffusion-v1-5",
-                controlnet=controlnet,
+        # === 分支 A: 启用骨骼 (OpenPose + ControlNet) ===
+        if config.enable_pose:
+            print("正在加载 ControlNet OpenPose 管道...")
+            controlnet = ControlNetModel.from_pretrained(
+                "lllyasviel/sd-controlnet-openpose",
                 torch_dtype=torch.float16
             )
 
-        # 3. 替换调度器 (Scheduler)
-        # UniPC 可以在 20 步内生成高质量图像，提升视频处理速度
+            if config.model_path and config.model_path.endswith(".safetensors"):
+                pipe = StableDiffusionControlNetPipeline.from_single_file(
+                    config.model_path,
+                    controlnet=controlnet,
+                    original_config_file=config.yaml_path,
+                    torch_dtype=torch.float16,
+                    use_safetensors=True,
+                    load_safety_checker=False
+                )
+            else:
+                pipe = StableDiffusionControlNetPipeline.from_pretrained(
+                    "runwayml/stable-diffusion-v1-5",
+                    controlnet=controlnet,
+                    torch_dtype=torch.float16
+                )
+
+        # === 分支 B: 禁用骨骼 (纯 Img2Img) ===
+        else:
+            print("正在加载 Img2Img 图生图管道 (无骨骼)...")
+            if config.model_path and config.model_path.endswith(".safetensors"):
+                pipe = StableDiffusionImg2ImgPipeline.from_single_file(
+                    config.model_path,
+                    original_config_file=config.yaml_path,
+                    torch_dtype=torch.float16,
+                    use_safetensors=True,
+                    load_safety_checker=False
+                )
+            else:
+                pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+                    "runwayml/stable-diffusion-v1-5",
+                    torch_dtype=torch.float16
+                )
+
+        # 通用配置
         pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
 
-        # 4. 显存与性能优化 (报告 6.3)
         if config.use_xformers:
             try:
                 pipe.enable_xformers_memory_efficient_attention()
-            except Exception as e:
-                print(f"xFormers 启用失败: {e}")
+            except Exception:
+                pass
 
         if config.low_vram:
-            # CPU Offload: 仅在推理时将模型层移入 GPU
             pipe.enable_model_cpu_offload()
         else:
             pipe.to("cuda")
