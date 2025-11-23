@@ -12,7 +12,7 @@ class DependencyInstaller(QThread):
     def __init__(self):
         super().__init__()
         # 强制指定 CUDA 13.0 的源，确保安装的是 GPU 版本
-        self.index_url = "https://download.pytorch.org/whl/cu130"
+        self.index_url = "https://download.pytorch.org/whl/cu128"
         self.packages = [
             "torch",
             "torchvision",
