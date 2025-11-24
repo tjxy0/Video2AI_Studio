@@ -1,6 +1,6 @@
 import os
 import cv2
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 from qfluentwidgets import (
     SubtitleLabel, PrimaryPushButton, PushButton, ProgressBar,
@@ -9,6 +9,7 @@ from qfluentwidgets import (
     PushSettingCard, TextEdit, CaptionLabel
 )
 
+# 保留导入，用于初始化组件
 from core.worker import AIWorker
 from gui.custom_components import (
     SimpleSpinBoxSettingCard,
@@ -18,32 +19,35 @@ from gui.custom_components import (
 )
 
 
-class HomeInterface(ScrollArea):
+# 将 HomeInterface 重命名为 Step1Interface
+class Step1Interface(ScrollArea):
+    """
+    工作流步骤 1: 视频选择与预处理设置 (原 HomeInterface 的前两部分)
+    """
+    nextClicked = pyqtSignal()
+
     def __init__(self, config, parent=None):
         super().__init__(parent=parent)
         self.config = config
         self.scrollWidget = QWidget()
         self.vBoxLayout = QVBoxLayout(self.scrollWidget)
-        self.setObjectName("homeInterface")
+        self.setObjectName("step1Interface")
         self._init_ui()
         self.setWidget(self.scrollWidget)
         self.setWidgetResizable(True)
-
-        # 保持 worker 的引用，防止被垃圾回收
-        self.worker = None
 
     def _init_ui(self):
         self.vBoxLayout.setSpacing(15)  # 设置全局垂直间距
         self.vBoxLayout.setContentsMargins(30, 20, 30, 30)  # 设置页边距
 
-        self.vBoxLayout.addWidget(SubtitleLabel("工作台", self.scrollWidget))
+        self.vBoxLayout.addWidget(SubtitleLabel("步骤 1: 视频与预处理设置", self.scrollWidget))
 
         # ==================================================
-        # 1. 视频选择区域
+        # 1. 视频选择区域 (保持不变)
         # ==================================================
         self.dropArea = CardWidget(self.scrollWidget)
         self.dropArea.setAcceptDrops(True)
-        self.dropArea.setFixedHeight(100)  # 稍微调低高度，更紧凑
+        self.dropArea.setFixedHeight(100)
         layout = QVBoxLayout(self.dropArea)
         self.iconWidget = IconWidget(FIF.VIDEO, self.dropArea)
         self.iconWidget.setFixedSize(32, 32)
@@ -55,9 +59,9 @@ class HomeInterface(ScrollArea):
         self.dropArea.dropEvent = self.dropEvent
         self.vBoxLayout.addWidget(self.dropArea)
 
-        # 视频信息卡片 (默认隐藏)
+        # 视频信息卡片 (保持不变)
         self.infoCard = CardWidget(self.scrollWidget)
-        self.infoCard.setFixedHeight(50)  # 紧凑高度
+        self.infoCard.setFixedHeight(50)
         self.infoLayout = QHBoxLayout(self.infoCard)
         self.infoLayout.setContentsMargins(10, 0, 10, 0)
         self.infoLabel = BodyLabel("等待加载视频...", self.infoCard)
@@ -68,21 +72,22 @@ class HomeInterface(ScrollArea):
         self.vBoxLayout.addSpacing(10)
 
         # ==================================================
-        # 2. 预处理设置 (分组布局)
+        # 2. 预处理设置 (保持不变)
         # ==================================================
-        self.vBoxLayout.addWidget(CaptionLabel("1. 预处理设置", self.scrollWidget))
+        self.vBoxLayout.addWidget(CaptionLabel("预处理设置", self.scrollWidget))
 
-        # 骨骼开关 (独占一行)
+        # 骨骼开关
         self.poseSwitch = SimpleSwitchSettingCard(
             self.config.enable_pose, FIF.PEOPLE,
             "启用骨骼提取",
             "开启：基于骨骼重绘(动漫化) | 关闭：图生图(风格迁移)",
             self.scrollWidget
         )
-        self.poseSwitch.checkedChanged.connect(self._on_pose_switch_changed)
+        # 注意：这里需要连接信号，以便同步到 Step2 的重绘幅度卡片
+        self.poseSwitch.checkedChanged.connect(lambda v: setattr(self.config, 'enable_pose', v))
         self.vBoxLayout.addWidget(self.poseSwitch)
 
-        # [布局优化] 目标帧率 和 目标宽度 并排显示
+        # 目标帧率 和 目标宽度
         prepLayout = QHBoxLayout()
         prepLayout.setSpacing(15)
 
@@ -102,137 +107,38 @@ class HomeInterface(ScrollArea):
         prepLayout.addWidget(self.widthCard)
         self.vBoxLayout.addLayout(prepLayout)
 
-        self.vBoxLayout.addSpacing(10)
-
-        # ==================================================
-        # 3. 生成参数设置 (分组布局)
-        # ==================================================
-        self.vBoxLayout.addWidget(CaptionLabel("2. 生成参数设置", self.scrollWidget))
-
-        # 模型选择
-        self.modelCard = PushSettingCard(
-            "选择文件", FIF.FOLDER,
-            "基础模型 (Checkpoint)",
-            self.config.model_path if self.config.model_path else "仅支持safetensor类型",
-            self.scrollWidget
-        )
-        self.modelCard.clicked.connect(self.select_model)
-        self.vBoxLayout.addWidget(self.modelCard)
-
-        self.vBoxLayout.addSpacing(5)
-
-        # --- 正向提示词 ---
-        self.vBoxLayout.addWidget(BodyLabel("正向提示词 (Prompt) - 描述画面内容，越详细越好", self.scrollWidget))
-        self.promptEdit = TextEdit(self.scrollWidget)
-        self.promptEdit.setPlaceholderText("例如: anime style, masterpiece, best quality, 1girl, smiling")
-        self.promptEdit.setText(self.config.prompt)
-        self.promptEdit.setFixedHeight(70)
-        self.promptEdit.textChanged.connect(lambda: setattr(self.config, 'prompt', self.promptEdit.toPlainText()))
-        self.vBoxLayout.addWidget(self.promptEdit)
-
-        self.vBoxLayout.addSpacing(5)
-
-        # --- 负面提示词 (新增) ---
-        self.vBoxLayout.addWidget(BodyLabel("负面提示词 (Negative Prompt) - 描述你不希望出现的元素", self.scrollWidget))
-        self.negativePromptEdit = TextEdit(self.scrollWidget)
-        self.negativePromptEdit.setPlaceholderText(
-            "例如: low quality, bad anatomy, watermark, text, error, ugly, deformed")
-        self.negativePromptEdit.setText(self.config.negative_prompt)
-        self.negativePromptEdit.setFixedHeight(70)
-        self.negativePromptEdit.textChanged.connect(
-            lambda: setattr(self.config, 'negative_prompt', self.negativePromptEdit.toPlainText()))
-        self.vBoxLayout.addWidget(self.negativePromptEdit)
-
-        self.vBoxLayout.addSpacing(10)
-
-        # 重绘幅度 (条件显示)
-        self.strengthCard = SimpleDoubleSpinBoxSettingCard(
-            self.config.denoising_strength, 0.0, 1.0, 0.05, FIF.BRUSH,
-            "重绘幅度", "关闭骨骼时生效，数值越大变化越大", self.scrollWidget
-        )
-        self.strengthCard.setVisible(not self.config.enable_pose)  # 初始状态也根据配置设置可见性
-        self.strengthCard.valueChanged.connect(lambda v: setattr(self.config, 'denoising_strength', v))
-        self.vBoxLayout.addWidget(self.strengthCard)
-
-        # [布局优化] 步数 和 CFG Scale 并排显示
-        genLayout = QHBoxLayout()
-        genLayout.setSpacing(15)
-
-        self.stepsCard = SimpleSpinBoxSettingCard(
-            self.config.steps, 1, 100, FIF.SYNC,
-            "迭代步数", "建议 20-30", self.scrollWidget
-        )
-        self.stepsCard.valueChanged.connect(lambda v: setattr(self.config, 'steps', v))
-
-        self.cfgCard = SimpleDoubleSpinBoxSettingCard(
-            self.config.cfg_scale, 1.0, 30.0, 0.5, FIF.PALETTE,
-            "CFG Scale", "建议 7.0-9.0", self.scrollWidget
-        )
-        self.cfgCard.valueChanged.connect(lambda v: setattr(self.config, 'cfg_scale', v))
-
-        genLayout.addWidget(self.stepsCard)
-        genLayout.addWidget(self.cfgCard)
-        self.vBoxLayout.addLayout(genLayout)
-
-        # 种子 (独占一行)
-        self.seedCard = SimpleLineEditSettingCard(
-            str(self.config.seed), "随机种子", FIF.EDIT,
-            "随机种子 (Seed)", "固定种子以减少画面闪烁", self.scrollWidget
-        )
-        # 确保输入是数字，并在配置中更新
-        self.seedCard.textChanged.connect(
-            lambda t: setattr(self.config, 'seed', int(t)) if t.isdigit() and t else setattr(self.config, 'seed', 12345)
-        )
-        self.vBoxLayout.addWidget(self.seedCard)
-
-        self.vBoxLayout.addSpacing(20)
-
-        # ==================================================
-        # 4. 输出设置 (新增区域)
-        # ==================================================
-        self.vBoxLayout.addWidget(CaptionLabel("3. 输出设置", self.scrollWidget))
-
-        # 输出目录选择
-        self.outputDirCard = PushSettingCard(
-            "选择目录", FIF.FOLDER,
-            "最终输出目录",
-            f"当前: {os.path.abspath(self.config.output_dir)}",
-            self.scrollWidget
-        )
-        self.outputDirCard.clicked.connect(self.select_output_dir)
-        self.vBoxLayout.addWidget(self.outputDirCard)
-
-        self.vBoxLayout.addSpacing(20)
-
-        # ==================================================
-        # 5. 控制区
-        # ==================================================
-        self.progressBar = ProgressBar(self.scrollWidget)
-        self.statusLabel = BodyLabel("准备就绪", self.scrollWidget)
-        self.statusLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # 按钮布局 (水平排列)
-        buttonLayout = QHBoxLayout()
-        buttonLayout.setSpacing(20)
-
-        self.startBtn = PrimaryPushButton("开始生成处理", self.scrollWidget)
-        self.startBtn.clicked.connect(self.start_processing)
-
-        self.stopBtn = PushButton("停止任务", self.scrollWidget)
-        self.stopBtn.setEnabled(False)  # 默认不可用
-        self.stopBtn.clicked.connect(self.stop_processing)
-
-        buttonLayout.addWidget(self.startBtn)
-        buttonLayout.addWidget(self.stopBtn)
-
-        self.vBoxLayout.addWidget(self.statusLabel)
-        self.vBoxLayout.addWidget(self.progressBar)
-        self.vBoxLayout.addLayout(buttonLayout)  # 添加按钮组
         self.vBoxLayout.addStretch(1)
 
-    def _on_pose_switch_changed(self, is_checked):
-        self.config.enable_pose = is_checked
-        self.strengthCard.setVisible(not is_checked)
+        # ==================================================
+        # 3. 底部导航 (新增)
+        # ==================================================
+        navLayout = QHBoxLayout()
+        navLayout.addStretch(1)
+
+        # 视频检查标签
+        self.videoCheckLabel = BodyLabel("请先选择视频文件", self.scrollWidget)
+        self.videoCheckLabel.setStyleSheet("color: red;")
+        navLayout.addWidget(self.videoCheckLabel)
+
+        navLayout.addSpacing(20)
+
+        self.nextBtn = PrimaryPushButton("下一步", self.scrollWidget)
+        self.nextBtn.setEnabled(False)  # 默认禁用，直到选择视频
+        self.nextBtn.clicked.connect(self.check_video_and_emit)
+        navLayout.addWidget(self.nextBtn)
+
+        self.vBoxLayout.addLayout(navLayout)
+
+    # --------------------------------------------------
+    # 逻辑部分 (保留和修改)
+    # --------------------------------------------------
+    def check_video_and_emit(self):
+        """检查视频路径，如果有效则发射 nextClicked 信号"""
+        if self.config.input_video_path and os.path.exists(self.config.input_video_path):
+            self.nextClicked.emit()
+        else:
+            # 使用 InfoBar 给出更友好的提示
+            self._msg("提示", "请先选择一个有效的视频文件！", True)
 
     def dropEvent(self, e):
         files = [u.toLocalFile() for u in e.mimeData().urls()]
@@ -242,22 +148,16 @@ class HomeInterface(ScrollArea):
         fname, _ = QFileDialog.getOpenFileName(self, "选择视频", "", "Video Files (*.mp4 *.avi *.mov)")
         if fname: self.load_video(fname)
 
-    def select_model(self):
-        fname, _ = QFileDialog.getOpenFileName(self, "选择模型", "", "Safetensors (*.safetensors);;All Files (*)")
-        if fname: self.modelCard.setContent(fname); self.config.model_path = fname
-
-    # --- 新增：选择输出目录 ---
-    def select_output_dir(self):
-        # 默认从当前配置的输出目录开始选择
-        dir_path = QFileDialog.getExistingDirectory(self, "选择最终输出目录", self.config.output_dir)
-        if dir_path:
-            self.config.output_dir = dir_path
-            self.outputDirCard.setContent(f"当前: {os.path.abspath(dir_path)}")
-
     def load_video(self, path):
         self.config.input_video_path = path
         self.hintLabel.setText(f"已选择: {os.path.basename(path)}")
         self.iconWidget.setIcon(FIF.COMPLETED)
+
+        # 激活下一步按钮
+        self.nextBtn.setEnabled(True)
+        self.videoCheckLabel.setText("视频已加载")
+        self.videoCheckLabel.setStyleSheet("color: green;")
+
         try:
             cap = cv2.VideoCapture(path)
             if cap.isOpened():
@@ -266,63 +166,18 @@ class HomeInterface(ScrollArea):
                 fps = cap.get(cv2.CAP_PROP_FPS)
                 self.infoLabel.setText(f"源信息: {w}x{h} | FPS: {fps:.2f}")
                 self.infoCard.setVisible(True)
+
+                # 调整目标尺寸和帧率
                 self.config.target_width = w if w < 512 else 512
                 self.widthCard.setValue(self.config.target_width)
                 self.config.target_fps = int(fps) if fps < 24 else 24
                 self.fpsCard.setValue(self.config.target_fps)
+
             cap.release()
         except Exception:
             pass
 
-    def start_processing(self):
-        if not self.config.input_video_path:
-            self._msg("提示", "请先选择视频文件", True)
-            return
-
-        # 切换按钮状态
-        self.startBtn.setEnabled(False)
-        self.startBtn.setText("处理中...")
-        self.stopBtn.setEnabled(True)
-
-        # 初始化 Worker
-        self.worker = AIWorker(self.config)
-
-        # 绑定信号
-        self.worker.progress_signal.connect(lambda v, t: (self.progressBar.setValue(v), self.statusLabel.setText(t)))
-
-        # 1. 正常完成的信号 (显示成功消息)
-        self.worker.finished_signal.connect(lambda: self._msg("完成", "处理结束", False))
-
-        # 2. 错误的信号
-        self.worker.error_signal.connect(lambda e: (self.statusLabel.setText("错误"), self._msg("失败", e, True)))
-
-        # 3. 线程结束信号 (无论是完成、停止还是报错，都会触发，用于重置 UI)
-        self.worker.finished.connect(self._on_worker_finished)
-
-        self.worker.start()
-
-    def stop_processing(self):
-        """用户点击停止按钮"""
-        if self.worker and self.worker.isRunning():
-            self.statusLabel.setText("正在中止任务，请稍候...")
-            self.stopBtn.setEnabled(False)  # 防止重复点击
-            self.worker.stop()
-            # 注意：这里不需要手动重置 startBtn，因为 worker 停止后会触发 finished 信号，
-            # 从而调用 _on_worker_finished 来统一处理重置逻辑
-
-    def _on_worker_finished(self):
-        """线程结束后的清理工作"""
-        self.startBtn.setEnabled(True)
-        self.startBtn.setText("开始生成处理")
-        self.stopBtn.setEnabled(False)
-
-        # 检查是否是用户手动停止
-        if "中止" in self.statusLabel.text():
-            self.statusLabel.setText("任务已中止")
-            self.progressBar.setValue(0)
-        elif self.progressBar.value() == 100:
-            self.statusLabel.setText("处理完成")
-
     def _msg(self, title, content, is_error):
+        # 简化 InfoBar 调用，确保其在父窗口显示
         func = InfoBar.error if is_error else InfoBar.success
         func(title=title, content=content, parent=self, position=InfoBarPosition.TOP, duration=3000)
