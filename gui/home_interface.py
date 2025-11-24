@@ -3,7 +3,7 @@ import cv2
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 from qfluentwidgets import (
-    SubtitleLabel, PrimaryPushButton, ProgressBar,
+    SubtitleLabel, PrimaryPushButton, PushButton, ProgressBar,
     InfoBar, InfoBarPosition, CardWidget, IconWidget,
     BodyLabel, FluentIcon as FIF, ScrollArea,
     PushSettingCard, TextEdit, CaptionLabel
@@ -28,6 +28,9 @@ class HomeInterface(ScrollArea):
         self._init_ui()
         self.setWidget(self.scrollWidget)
         self.setWidgetResizable(True)
+
+        # 保持 worker 的引用，防止被垃圾回收
+        self.worker = None
 
     def _init_ui(self):
         self.vBoxLayout.setSpacing(15)  # 设置全局垂直间距
@@ -116,20 +119,38 @@ class HomeInterface(ScrollArea):
         self.modelCard.clicked.connect(self.select_model)
         self.vBoxLayout.addWidget(self.modelCard)
 
-        # 提示词
+        self.vBoxLayout.addSpacing(5)
+
+        # --- 正向提示词 ---
+        self.vBoxLayout.addWidget(BodyLabel("正向提示词 (Prompt) - 描述画面内容，越详细越好", self.scrollWidget))
         self.promptEdit = TextEdit(self.scrollWidget)
-        self.promptEdit.setPlaceholderText("提示词 (Prompt) - 例如: anime style, masterpiece, best quality")
+        self.promptEdit.setPlaceholderText("例如: anime style, masterpiece, best quality, 1girl, smiling")
         self.promptEdit.setText(self.config.prompt)
-        self.promptEdit.setFixedHeight(70)  # 稍微减小高度
+        self.promptEdit.setFixedHeight(70)
         self.promptEdit.textChanged.connect(lambda: setattr(self.config, 'prompt', self.promptEdit.toPlainText()))
         self.vBoxLayout.addWidget(self.promptEdit)
+
+        self.vBoxLayout.addSpacing(5)
+
+        # --- 负面提示词 (新增) ---
+        self.vBoxLayout.addWidget(BodyLabel("负面提示词 (Negative Prompt) - 描述你不希望出现的元素", self.scrollWidget))
+        self.negativePromptEdit = TextEdit(self.scrollWidget)
+        self.negativePromptEdit.setPlaceholderText(
+            "例如: low quality, bad anatomy, watermark, text, error, ugly, deformed")
+        self.negativePromptEdit.setText(self.config.negative_prompt)
+        self.negativePromptEdit.setFixedHeight(70)
+        self.negativePromptEdit.textChanged.connect(
+            lambda: setattr(self.config, 'negative_prompt', self.negativePromptEdit.toPlainText()))
+        self.vBoxLayout.addWidget(self.negativePromptEdit)
+
+        self.vBoxLayout.addSpacing(10)
 
         # 重绘幅度 (条件显示)
         self.strengthCard = SimpleDoubleSpinBoxSettingCard(
             self.config.denoising_strength, 0.0, 1.0, 0.05, FIF.BRUSH,
             "重绘幅度", "关闭骨骼时生效，数值越大变化越大", self.scrollWidget
         )
-        self.strengthCard.setVisible(False)
+        self.strengthCard.setVisible(not self.config.enable_pose)  # 初始状态也根据配置设置可见性
         self.strengthCard.valueChanged.connect(lambda v: setattr(self.config, 'denoising_strength', v))
         self.vBoxLayout.addWidget(self.strengthCard)
 
@@ -158,23 +179,55 @@ class HomeInterface(ScrollArea):
             str(self.config.seed), "随机种子", FIF.EDIT,
             "随机种子 (Seed)", "固定种子以减少画面闪烁", self.scrollWidget
         )
-        self.seedCard.textChanged.connect(lambda t: setattr(self.config, 'seed', int(t)) if t.isdigit() else None)
+        # 确保输入是数字，并在配置中更新
+        self.seedCard.textChanged.connect(
+            lambda t: setattr(self.config, 'seed', int(t)) if t.isdigit() and t else setattr(self.config, 'seed', 12345)
+        )
         self.vBoxLayout.addWidget(self.seedCard)
 
         self.vBoxLayout.addSpacing(20)
 
         # ==================================================
-        # 4. 控制区
+        # 4. 输出设置 (新增区域)
+        # ==================================================
+        self.vBoxLayout.addWidget(CaptionLabel("3. 输出设置", self.scrollWidget))
+
+        # 输出目录选择
+        self.outputDirCard = PushSettingCard(
+            "选择目录", FIF.FOLDER,
+            "最终输出目录",
+            f"当前: {os.path.abspath(self.config.output_dir)}",
+            self.scrollWidget
+        )
+        self.outputDirCard.clicked.connect(self.select_output_dir)
+        self.vBoxLayout.addWidget(self.outputDirCard)
+
+        self.vBoxLayout.addSpacing(20)
+
+        # ==================================================
+        # 5. 控制区
         # ==================================================
         self.progressBar = ProgressBar(self.scrollWidget)
         self.statusLabel = BodyLabel("准备就绪", self.scrollWidget)
         self.statusLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # 按钮布局 (水平排列)
+        buttonLayout = QHBoxLayout()
+        buttonLayout.setSpacing(20)
+
         self.startBtn = PrimaryPushButton("开始生成处理", self.scrollWidget)
         self.startBtn.clicked.connect(self.start_processing)
 
+        self.stopBtn = PushButton("停止任务", self.scrollWidget)
+        self.stopBtn.setEnabled(False)  # 默认不可用
+        self.stopBtn.clicked.connect(self.stop_processing)
+
+        buttonLayout.addWidget(self.startBtn)
+        buttonLayout.addWidget(self.stopBtn)
+
         self.vBoxLayout.addWidget(self.statusLabel)
         self.vBoxLayout.addWidget(self.progressBar)
-        self.vBoxLayout.addWidget(self.startBtn)
+        self.vBoxLayout.addLayout(buttonLayout)  # 添加按钮组
         self.vBoxLayout.addStretch(1)
 
     def _on_pose_switch_changed(self, is_checked):
@@ -192,6 +245,14 @@ class HomeInterface(ScrollArea):
     def select_model(self):
         fname, _ = QFileDialog.getOpenFileName(self, "选择模型", "", "Safetensors (*.safetensors);;All Files (*)")
         if fname: self.modelCard.setContent(fname); self.config.model_path = fname
+
+    # --- 新增：选择输出目录 ---
+    def select_output_dir(self):
+        # 默认从当前配置的输出目录开始选择
+        dir_path = QFileDialog.getExistingDirectory(self, "选择最终输出目录", self.config.output_dir)
+        if dir_path:
+            self.config.output_dir = dir_path
+            self.outputDirCard.setContent(f"当前: {os.path.abspath(dir_path)}")
 
     def load_video(self, path):
         self.config.input_video_path = path
@@ -214,17 +275,53 @@ class HomeInterface(ScrollArea):
             pass
 
     def start_processing(self):
-        if not self.config.input_video_path: return
+        if not self.config.input_video_path:
+            self._msg("提示", "请先选择视频文件", True)
+            return
+
+        # 切换按钮状态
         self.startBtn.setEnabled(False)
         self.startBtn.setText("处理中...")
+        self.stopBtn.setEnabled(True)
+
+        # 初始化 Worker
         self.worker = AIWorker(self.config)
+
+        # 绑定信号
         self.worker.progress_signal.connect(lambda v, t: (self.progressBar.setValue(v), self.statusLabel.setText(t)))
-        self.worker.finished_signal.connect(
-            lambda: (self.startBtn.setEnabled(True), self.startBtn.setText("开始"), self.progressBar.setValue(100),
-                     self._msg("完成", "处理结束", False)))
-        self.worker.error_signal.connect(
-            lambda e: (self.startBtn.setEnabled(True), self.statusLabel.setText("错误"), self._msg("失败", e, True)))
+
+        # 1. 正常完成的信号 (显示成功消息)
+        self.worker.finished_signal.connect(lambda: self._msg("完成", "处理结束", False))
+
+        # 2. 错误的信号
+        self.worker.error_signal.connect(lambda e: (self.statusLabel.setText("错误"), self._msg("失败", e, True)))
+
+        # 3. 线程结束信号 (无论是完成、停止还是报错，都会触发，用于重置 UI)
+        self.worker.finished.connect(self._on_worker_finished)
+
         self.worker.start()
+
+    def stop_processing(self):
+        """用户点击停止按钮"""
+        if self.worker and self.worker.isRunning():
+            self.statusLabel.setText("正在中止任务，请稍候...")
+            self.stopBtn.setEnabled(False)  # 防止重复点击
+            self.worker.stop()
+            # 注意：这里不需要手动重置 startBtn，因为 worker 停止后会触发 finished 信号，
+            # 从而调用 _on_worker_finished 来统一处理重置逻辑
+
+    def _on_worker_finished(self):
+        """线程结束后的清理工作"""
+        self.startBtn.setEnabled(True)
+        self.startBtn.setText("开始生成处理")
+        self.stopBtn.setEnabled(False)
+
+        # 检查是否是用户手动停止
+        if "中止" in self.statusLabel.text():
+            self.statusLabel.setText("任务已中止")
+            self.progressBar.setValue(0)
+        elif self.progressBar.value() == 100:
+            self.statusLabel.setText("处理完成")
 
     def _msg(self, title, content, is_error):
         func = InfoBar.error if is_error else InfoBar.success

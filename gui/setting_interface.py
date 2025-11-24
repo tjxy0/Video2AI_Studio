@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
-from qfluentwidgets import SubtitleLabel, ScrollArea, FluentIcon as FIF
+from qfluentwidgets import SubtitleLabel, ScrollArea, FluentIcon as FIF, SettingCard, PrimaryPushSettingCard
 from gui.custom_components import SimpleSwitchSettingCard
 from core.env_checker import EnvironmentChecker
 
@@ -15,11 +15,44 @@ class SettingInterface(ScrollArea):
         self._init_ui()
 
     def _init_ui(self):
-        self.expandLayout.addWidget(SubtitleLabel("系统与性能设置", self.scrollWidget))
+        self.expandLayout.setContentsMargins(30, 20, 30, 30)
+        self.expandLayout.setSpacing(15)
+
+        # ==================================================
+        # 1. 环境状态检测 (新增)
+        # ==================================================
+        self.expandLayout.addWidget(SubtitleLabel("当前环境状态", self.scrollWidget))
+
+        # 检查各项环境
+        cuda_info = EnvironmentChecker.get_cuda_info()
+        has_ffmpeg = EnvironmentChecker.check_ffmpeg()
+        has_xformers = EnvironmentChecker.check_xformers()
+
+        # GPU 信息卡片
+        self.gpuCard = SettingCard(
+            FIF.VIDEO, "GPU (CUDA)",
+            cuda_info if cuda_info != "N/A" else "未检测到 CUDA 设备",
+            self.scrollWidget
+        )
+        self.expandLayout.addWidget(self.gpuCard)
+
+        # 依赖库状态卡片
+        status_text = f"FFmpeg: {'已安装' if has_ffmpeg else '未找到'} | xFormers: {'已安装' if has_xformers else '未找到'}"
+        self.envCard = SettingCard(
+            FIF.DEVELOPER_TOOLS, "核心组件状态",
+            status_text,
+            self.scrollWidget
+        )
+        self.expandLayout.addWidget(self.envCard)
+
         self.expandLayout.addSpacing(20)
 
+        # ==================================================
+        # 2. 系统与性能设置
+        # ==================================================
+        self.expandLayout.addWidget(SubtitleLabel("系统与性能设置", self.scrollWidget))
+
         # --- xFormers 开关 (动态检测) ---
-        has_xformers = EnvironmentChecker.check_xformers()
         xformers_desc = "显著降低显存占用并加速推理。"
 
         # 如果未检测到 xFormers

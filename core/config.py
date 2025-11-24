@@ -6,7 +6,10 @@ class GenerationConfig:
     def __init__(self):
         # 输入输出
         self.input_video_path = ""
+        # 默认输出目录
         self.output_dir = "output"
+        # 临时文件目录名 (相对于 output_dir)，用于存放原始帧和骨骼图
+        self.temp_dir_name = "temp_frames"
 
         # 预处理参数
         self.target_fps = 24
@@ -18,7 +21,7 @@ class GenerationConfig:
         self.yaml_path = "configs/v1-inference.yaml"
 
         # 生成参数
-        self.prompt = "high quality, masterpiece, anime style, 1girl, vivid colors"
+        self.prompt = "high quality, masterpiece, anime style, vivid colors"
         self.negative_prompt = "low quality, bad anatomy, watermark, text, error, ugly, deformed"
         self.seed = 12345
         self.steps = 20
@@ -26,5 +29,5 @@ class GenerationConfig:
         self.denoising_strength = 0.75  # 重绘幅度 (仅 enable_pose=False 时生效)
 
         # 性能开关
-        self.use_xformers = False
+        self.use_xformers = True
         self.low_vram = False

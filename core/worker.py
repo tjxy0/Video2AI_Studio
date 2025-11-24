@@ -1,5 +1,6 @@
 import os
 import subprocess
+import shutil  # 新增：用于清理目录
 from PyQt6.QtCore import QThread, pyqtSignal
 
 
@@ -17,6 +18,10 @@ class AIWorker(QThread):
         self.running = True
 
     def run(self):
+        # 确保 temp 目录变量在 try 块外部定义，以便在 finally 块中访问
+        temp_dir = None
+        base_dir = self.config.output_dir
+
         try:
             # === 延迟导入区 ===
             import torch
@@ -28,14 +33,32 @@ class AIWorker(QThread):
             if not self.config.input_video_path or not os.path.exists(self.config.input_video_path):
                 raise ValueError("无效的视频输入路径")
 
-            # 目录准备
-            base_dir = self.config.output_dir
+            # 确保主输出目录存在
+            os.makedirs(base_dir, exist_ok=True)
+
+            # 临时目录 (用于存放中间帧：raw, pose)
+            temp_dir = os.path.join(base_dir, self.config.temp_dir_name)
+
+            # 最终输出帧目录
+            final_out_dir_name = "frames_out"
+            out_dir = os.path.join(base_dir, final_out_dir_name)
+
             dirs = {
-                "raw": os.path.join(base_dir, "frames_raw"),
-                "pose": os.path.join(base_dir, "frames_pose"),
-                "out": os.path.join(base_dir, "frames_out")
+                # 原始帧和姿态帧放在临时目录
+                "raw": os.path.join(temp_dir, "frames_raw"),
+                "pose": os.path.join(temp_dir, "frames_pose"),
+                # 最终生成帧放在主目录
+                "out": out_dir
             }
+
+            # 清理并创建必要的目录
+            if os.path.exists(temp_dir):
+                self.progress_signal.emit(1, "清理旧临时文件...")
+                shutil.rmtree(temp_dir)  # 每次运行前清理旧的临时目录
+
+            os.makedirs(temp_dir, exist_ok=True)
             for d in dirs.values():
+                # 确保所有子目录都创建
                 os.makedirs(d, exist_ok=True)
 
             startupinfo = None
@@ -47,7 +70,7 @@ class AIWorker(QThread):
             fps = self.config.target_fps
             width = self.config.target_width
 
-            self.progress_signal.emit(5, f"拆帧中 ({fps}fps)...")
+            self.progress_signal.emit(5, f"拆帧中 ({fps}fps) -> 临时目录...")
             subprocess.run([
                 "ffmpeg", "-y", "-i", self.config.input_video_path,
                 "-vf", f"fps={fps},scale={width}:-1",
@@ -65,9 +88,12 @@ class AIWorker(QThread):
 
                 for idx, f_name in enumerate(frame_files):
                     if not self.running: return
+
+                    # --- 内存优化：处理完即释放 ---
                     img = Image.open(os.path.join(dirs["raw"], f_name))
                     pose = detector(img)
                     pose.save(os.path.join(dirs["pose"], f_name))
+                    del img, pose  # 释放当前帧的内存
 
                     prog = 20 + int((idx / total_frames) * 20)
                     self.progress_signal.emit(prog, f"提取骨骼: {idx + 1}/{total_frames}")
@@ -100,6 +126,7 @@ class AIWorker(QThread):
                         generator=generator,
                         guidance_scale=self.config.cfg_scale
                     ).images[0]
+                    del pose_img  # 释放骨骼图内存
                 else:
                     # B: 使用图生图
                     image = pipe(
@@ -113,8 +140,16 @@ class AIWorker(QThread):
                     ).images[0]
 
                 image.save(os.path.join(dirs["out"], f_name))
+
+                # --- 内存优化：释放当前帧和生成结果的内存 ---
+                del raw_img, image
+                torch.cuda.empty_cache()  # 每次释放 VRAM
+
                 prog = 50 + int((idx / total_frames) * 45)
                 self.progress_signal.emit(prog, f"帧生成: {idx + 1}/{total_frames}")
+
+            del pipe  # 任务完成后卸载模型
+            torch.cuda.empty_cache()
 
             # === 4. 视频合成 ===
             self.progress_signal.emit(95, "合成视频...")
@@ -132,6 +167,16 @@ class AIWorker(QThread):
             import traceback
             traceback.print_exc()
             self.error_signal.emit(str(e))
+
+        finally:
+            # === 5. 清理临时文件 (每次清理) ===
+            if temp_dir and os.path.exists(temp_dir):
+                self.progress_signal.emit(100, "清理临时文件...")
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    print(f"清理临时目录失败: {e}")
+            # ==================================
 
     def stop(self):
         self.running = False
