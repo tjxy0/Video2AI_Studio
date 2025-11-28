@@ -1,4 +1,7 @@
 # **Video2AI Studio：视频风格化工作台**
+## **❓ 为什么会有这个项目**
+本项目是针对本人大一通识课《人工智能导论》期末作业的延伸，由于手工将视频拆开后批量导入stable diffusion里面是一项较为繁琐且低效的工作，所以我编写了这个小工具，通过使用ffmpeg将视频拆分为帧序列后自动使用stable diffusion进行重绘，同时还加入了openpose，也许能用来重绘舞蹈视频之类的。
+
 
 ## **🌟 项目简介**
 
@@ -44,7 +47,7 @@ cd Video2AI\_Studio
 python \-m venv venv  
 # Windows  
 .\\venv\\Scripts\\activate  
-# macOS/Linux  
+# Linux  
 source venv/bin/activate
 ```
 ### **3\. 安装依赖**
