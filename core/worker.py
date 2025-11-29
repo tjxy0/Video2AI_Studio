@@ -170,7 +170,6 @@ class AIWorker(QThread):
 
         finally:
             # === 5. 清理临时文件 (每次清理) ===
-            # 只清理 temp_dir (temp_frames)，frames_out 留给 Step3Interface 清理
             if temp_dir and os.path.exists(temp_dir):
                 self.progress_signal.emit(100, "清理临时文件...")
                 try:
