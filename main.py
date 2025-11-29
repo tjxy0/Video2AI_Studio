@@ -2,7 +2,7 @@ import sys
 import os
 import platform
 import warnings
-import torch
+import torch #提前加载torch以避免出现dll错误
 
 # 忽略不必要的第三方库警告
 warnings.filterwarnings("ignore", category=UserWarning, module="controlnet_aux")
