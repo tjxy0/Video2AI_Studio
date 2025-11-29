@@ -8,7 +8,6 @@ from qfluentwidgets import (
 
 # 导入所有步骤和欢迎页
 from gui.welcome_interface import WelcomeInterface
-# 修复：直接从文件名导入 Step1Interface (它在 gui/home_interface.py 文件中)
 from gui.home_interface import Step1Interface
 from gui.step2_gen_params import Step2Interface
 from gui.step3_control_output import Step3Interface
@@ -103,6 +102,10 @@ class WorkflowInterface(QWidget):
 
         # Step 3 -> Step 2
         self.step3Interface.prevClicked.connect(lambda: self._set_current_index(2))
+
+        # ===== 新增连接：任务结束后返回欢迎页 =====
+        self.step3Interface.resetWorkflow.connect(lambda: self._set_current_index(0))
+        # =======================================
 
         # 此外，监听 Step1 的 Pose Switch 变化，同步到 Step2
         self.step1Interface.poseSwitch.checkedChanged.connect(self._sync_pose_switch)

@@ -12,9 +12,11 @@ from core.worker import AIWorker
 
 class Step3Interface(ScrollArea):
     """
-    工作流步骤 3: 输出设置与控制台 (原 HomeInterface 的第 4/5 部分)
+    工作流步骤 3: 输出设置与任务控制 (原 HomeInterface 的第 4/5 部分)
     """
     prevClicked = pyqtSignal()
+    # 新增信号：用于通知工作流容器重置到欢迎页
+    resetWorkflow = pyqtSignal()
 
     def __init__(self, config, parent=None):
         super().__init__(parent=parent)
@@ -135,7 +137,9 @@ class Step3Interface(ScrollArea):
             self.worker.stop()
 
     def _on_worker_finished(self):
-        """线程结束后的清理工作"""
+        """
+        线程结束后的清理工作，并发送重置信号。
+        """
         self.startBtn.setEnabled(True)
         self.startBtn.setText("开始生成处理")
         self.stopBtn.setEnabled(False)
@@ -146,6 +150,9 @@ class Step3Interface(ScrollArea):
             self.progressBar.setValue(0)
         elif self.progressBar.value() == 100:
             self.statusLabel.setText("处理完成")
+
+        # 任务完成后，发送信号通知返回欢迎页
+        self.resetWorkflow.emit()
 
     def _msg(self, title, content, is_error):
         func = InfoBar.error if is_error else InfoBar.success
